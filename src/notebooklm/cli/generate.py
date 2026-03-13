@@ -421,6 +421,7 @@ def generate_audio(
     type=click.Choice(
         [
             "auto",
+            "custom",
             "classic",
             "whiteboard",
             "kawaii",
@@ -432,6 +433,12 @@ def generate_audio(
         ]
     ),
     default="auto",
+)
+@click.option(
+    "--style-prompt",
+    "custom_style_prompt",
+    default=None,
+    help="When --style custom: visual style description (e.g. '8-bit pixel art, neon cyberpunk'). Ignored for other styles.",
 )
 @click.option("--language", default=None, help="Output language (default: from config or 'en')")
 @click.option("--source", "-s", "source_ids", multiple=True, help="Limit to specific source IDs")
@@ -445,6 +452,7 @@ def generate_video(
     notebook_id,
     video_format,
     style,
+    custom_style_prompt,
     language,
     source_ids,
     wait,
@@ -457,6 +465,8 @@ def generate_video(
     Use --format cinematic for AI-generated documentary footage (Veo 3).
     Cinematic videos ignore --style and take ~30-40 min (requires AI Ultra).
 
+    Use --style custom with --style-prompt "description" for a custom visual style.
+
     \b
     Use --json for machine-readable output.
 
@@ -464,6 +474,7 @@ def generate_video(
     Example:
       notebooklm generate video "a funny explainer for kids age 5"
       notebooklm generate video "professional presentation" --style classic
+      notebooklm generate video "professional look" --style custom --style-prompt "minimalist corporate, clean lines"
       notebooklm generate video --format cinematic "documentary overview"
       notebooklm generate video -s src_001 "from specific source"
     """
@@ -479,6 +490,7 @@ def generate_video(
     }
     style_map = {
         "auto": VideoStyle.AUTO_SELECT,
+        "custom": VideoStyle.CUSTOM,
         "classic": VideoStyle.CLASSIC,
         "whiteboard": VideoStyle.WHITEBOARD,
         "kawaii": VideoStyle.KAWAII,
@@ -510,6 +522,7 @@ def generate_video(
                     instructions=description or None,
                     video_format=format_map[video_format],
                     video_style=style_map[style],
+                    custom_style_prompt=(custom_style_prompt or "").strip() or None,
                 )
 
             timeout = 1800.0 if is_cinematic else 600.0

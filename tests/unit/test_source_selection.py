@@ -17,7 +17,7 @@ import pytest
 from notebooklm._artifacts import ArtifactsAPI
 from notebooklm._chat import ChatAPI
 from notebooklm.auth import AuthTokens
-from notebooklm.rpc import InfographicStyle
+from notebooklm.rpc import InfographicStyle, VideoFormat, VideoStyle
 
 
 @pytest.fixture
@@ -280,6 +280,34 @@ class TestArtifactsSourceSelection:
 
         assert source_ids_triple == [[["src_a"]], [["src_b"]]]
         assert source_ids_double == [["src_a"], ["src_b"]]
+
+    @pytest.mark.asyncio
+    async def test_generate_video_custom_style_encoding(self, mock_core, mock_notes_api):
+        """Custom style: UI sends [..., null, format, null, custom_prompt] at index 6."""
+        api = ArtifactsAPI(mock_core, mock_notes_api)
+        mock_core.get_source_ids = AsyncMock(return_value=["src_1"])
+        mock_core.rpc_call.return_value = [["artifact_789", "Video", 3, None, 1]]
+
+        await api.generate_video(
+            notebook_id="nb_123",
+            source_ids=["src_1"],
+            video_format=VideoFormat.EXPLAINER,
+            video_style=VideoStyle.CUSTOM,
+            custom_style_prompt="premium YouTube explainer, Bolt Gold #FAA123",
+            instructions="explain in 30 seconds.",
+        )
+
+        params = mock_core.rpc_call.call_args.args[1]
+        inner = params[2][8][2]
+        # [source_ids_double, language, instructions, null, format_code, style_code, custom_prompt]
+        assert len(inner) == 7
+        assert inner[0] == [["src_1"]]
+        assert inner[1] == "en"
+        assert inner[2] == "explain in 30 seconds."
+        assert inner[3] is None
+        assert inner[4] == 1  # EXPLAINER
+        assert inner[5] is None  # style_code is null when custom
+        assert inner[6] == "premium YouTube explainer, Bolt Gold #FAA123"
 
     @pytest.mark.asyncio
     async def test_generate_report_source_encoding(self, mock_core, mock_notes_api):

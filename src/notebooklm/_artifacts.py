@@ -415,6 +415,7 @@ class ArtifactsAPI:
         instructions: str | None = None,
         video_format: VideoFormat | None = None,
         video_style: VideoStyle | None = None,
+        custom_style_prompt: str | None = None,
     ) -> GenerationStatus:
         """Generate a Video Overview.
 
@@ -424,7 +425,10 @@ class ArtifactsAPI:
             language: Language code (default: "en").
             instructions: Custom instructions for video generation.
             video_format: EXPLAINER or BRIEF.
-            video_style: AUTO_SELECT, CLASSIC, WHITEBOARD, etc.
+            video_style: AUTO_SELECT, CUSTOM, CLASSIC, WHITEBOARD, etc.
+            custom_style_prompt: When video_style is CUSTOM, the visual style
+                description (e.g. "8-bit pixel art with neon cyberpunk aesthetic").
+                Ignored for non-CUSTOM styles.
 
         Returns:
             GenerationStatus with task_id for polling.
@@ -438,6 +442,26 @@ class ArtifactsAPI:
         format_code = video_format.value if video_format else None
         style_code = video_style.value if video_style else None
 
+        # Custom style: UI sends [source_ids, language, instructions, null, format, null, custom_prompt].
+        # Built-in styles: [source_ids, language, instructions, null, format, style_code].
+        # Do NOT prepend custom prompt to instructions; it goes in its own slot at index 6.
+        custom_style_slot = None
+        if video_style == VideoStyle.CUSTOM and custom_style_prompt:
+            custom_style_slot = (custom_style_prompt or "").strip() or None
+        if video_style == VideoStyle.CUSTOM:
+            style_code = None  # UI sends null for style_code when using custom
+
+        inner = [
+            source_ids_double,
+            language,
+            instructions,
+            None,
+            format_code,
+            style_code,
+        ]
+        if custom_style_slot is not None:
+            inner.append(custom_style_slot)
+
         params = [
             [2],
             notebook_id,
@@ -450,18 +474,7 @@ class ArtifactsAPI:
                 None,
                 None,
                 None,
-                [
-                    None,
-                    None,
-                    [
-                        source_ids_double,
-                        language,
-                        instructions,
-                        None,
-                        format_code,
-                        style_code,
-                    ],
-                ],
+                [None, None, inner],
             ],
         ]
         return await self._call_generate(notebook_id, params)

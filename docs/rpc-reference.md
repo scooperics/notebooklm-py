@@ -514,31 +514,38 @@ params = [
 
 **Source:** `_artifacts.py::generate_video()`
 
+**Built-in styles** (6 elements):
+```python
+inner = [
+    source_ids_double,
+    language,             # "en"
+    instructions,
+    None,
+    format_code,          # 1=EXPLAINER, 2=BRIEF
+    style_code,           # 1=AUTO, 3=CLASSIC, 4=WHITEBOARD, etc.
+]
+```
+
+**Custom style** (7 elements; style_code is null, custom prompt at index 6):
+```python
+inner = [
+    source_ids_double,
+    language,
+    instructions,
+    None,
+    format_code,
+    None,                 # style_code is null when custom
+    custom_style_prompt,  # Visual style description
+]
+```
+
 ```python
 params = [
     [2],
     notebook_id,
     [
-        None,                         # [0]
-        None,                         # [1]
-        3,                            # [2]: ArtifactTypeCode.VIDEO
-        source_ids_triple,            # [3]
-        None,                         # [4]
-        None,                         # [5]
-        None,                         # [6]
-        None,                         # [7]
-        [
-            None,
-            None,
-            [
-                source_ids_double,
-                language,             # "en"
-                instructions,
-                None,
-                format_code,          # 1=EXPLAINER, 2=BRIEF
-                style_code,           # 1=AUTO, 2=CUSTOM, 3=CLASSIC, 4=WHITEBOARD, etc.
-            ],
-        ],                            # [8]
+        None, None, 3, source_ids_triple, None, None, None, None,
+        [None, None, inner],  # [8]
     ],
 ]
 ```
