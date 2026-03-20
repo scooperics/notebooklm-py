@@ -158,7 +158,7 @@ All generate commands support:
 | `cinematic-video [path]` | Output path | Alias for `download video`; same options as `video` | `download cinematic-video ./documentary.mp4` |
 | `slide-deck [path]` | Output path      | `-a/--artifact`, `--all`, `--latest`, `--name`, `--force`, `--dry-run`, `--format [pdf\|pptx]` | `download slide-deck ./slides.pdf` |
 | `infographic [path]` | Output path | `-a/--artifact`, `--all`, `--latest`, `--name`, `--force`, `--dry-run` | `download infographic ./info.png` |
-| `report [path]` | Output path | `-a/--artifact`, `--all`, `--latest`, `--name`, `--force`, `--dry-run` | `download report ./report.md` |
+| `report [path]` | Output path | `-a/--artifact`, `--all`, `--latest`, `--name`, `--force`, `--dry-run`, `--include-thinking`, `--thinking-output` | `download report ./report.md` |
 | `mind-map [path]` | Output path | `-a/--artifact`, `--all`, `--latest`, `--name`, `--force`, `--dry-run` | `download mind-map ./map.json` |
 | `data-table [path]` | Output path | `-a/--artifact`, `--all`, `--latest`, `--name`, `--force`, `--dry-run` | `download data-table ./data.csv` |
 | `quiz [path]` | Output path | `-n/--notebook`, `-a/--artifact`, `--format` (json/markdown/html) | `download quiz --format markdown quiz.md` |
@@ -675,6 +675,8 @@ notebooklm download <type> [OUTPUT_PATH] [OPTIONS]
 - `--force` - Overwrite existing files
 - `--no-clobber` - Skip if file already exists (default)
 - `--format [pdf|pptx]` - Slide deck format (slide-deck command only, default: pdf)
+- `--include-thinking` - Report only: extract and save reasoning/thinking content (if present) to `.thinking.md`
+- `--thinking-output PATH` - Report only: path for thinking file (default: `<output>.thinking.md`)
 - `--json` - Output result in JSON format
 
 **Examples:**
@@ -696,6 +698,12 @@ notebooklm download audio --all --dry-run
 
 # Download a report as markdown
 notebooklm download report ./study-guide.md
+
+# Download report with reasoning/thinking (if present)
+notebooklm download report ./study-guide.md --include-thinking
+
+# Download report with thinking to a custom path
+notebooklm download report ./report.md --include-thinking --thinking-output ./reasoning.md
 
 # Download mind map as JSON
 notebooklm download mind-map ./concept-map.json

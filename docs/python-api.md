@@ -326,7 +326,8 @@ print(f"Keywords: {guide['keywords']}")
 | `download_video(notebook_id, output_path, artifact_id=None)` | `str, str, str` | `str` | Download video to file (MP4) |
 | `download_infographic(notebook_id, output_path, artifact_id=None)` | `str, str, str` | `str` | Download infographic to file (PNG) |
 | `download_slide_deck(notebook_id, output_path, artifact_id=None)` | `str, str, str` | `str` | Download slide deck as PDF |
-| `download_report(notebook_id, output_path, artifact_id=None)` | `str, str, str` | `str` | Download report as Markdown (.md) |
+| `download_report(notebook_id, output_path, artifact_id=None, include_thinking=False, thinking_output_path=None)` | `str, str, str, bool, str` | `str` or `tuple[str, str]` | Download report as Markdown; optionally extract thinking |
+| `get_report_content(notebook_id, artifact_id=None, include_thinking=False)` | `str, str, bool` | `tuple[str, str\|None]` | Get report content and optionally thinking (no file write) |
 | `download_mind_map(notebook_id, output_path, artifact_id=None)` | `str, str, str` | `str` | Download mind map as JSON (.json) |
 | `download_data_table(notebook_id, output_path, artifact_id=None)` | `str, str, str` | `str` | Download data table as CSV (.csv) |
 | `download_quiz(notebook_id, output_path, artifact_id=None, output_format="json")` | `str, str, str, str` | `str` | Download quiz (json/markdown/html) |
@@ -354,6 +355,13 @@ path = await client.artifacts.download_slide_deck(nb_id, "./slides.pdf")
 # Download report as Markdown
 path = await client.artifacts.download_report(nb_id, "./study-guide.md")
 # Extracts markdown content from Briefing Doc, Study Guide, Blog Post, etc.
+
+# Download report and optionally save thinking/reasoning (if present)
+path = await client.artifacts.download_report(nb_id, "./report.md", include_thinking=True)
+# When thinking is found, saves report.md and report.thinking.md; returns (report_path, thinking_path)
+
+# Get report content in memory (no file write)
+content, thinking = await client.artifacts.get_report_content(nb_id, include_thinking=True)
 
 # Download mind map as JSON
 path = await client.artifacts.download_mind_map(nb_id, "./concept-map.json")
@@ -384,6 +392,44 @@ path = await client.artifacts.download_flashcards(nb_id, "cards.md", output_form
 - Mind map downloads return a JSON tree structure with `name` and `children` fields
 - Data table downloads parse the complex rich-text format into CSV rows/columns
 - Quiz/flashcard formats: `json` (structured), `markdown` (readable), `html` (raw)
+
+**Report Thinking**
+
+Some report artifacts include reasoning/thinking content. The API structure is undocumented; extraction may return `None` if thinking is not present or in an unexpected format.
+
+```python
+# Get report content and thinking in memory (no file write)
+content, thinking = await client.artifacts.get_report_content(
+    nb_id,
+    artifact_id=None,      # or specific ID, e.g. "report_abc123"
+    include_thinking=True,
+)
+# content: str - the report markdown
+# thinking: str | None - reasoning text if found, else None
+
+if thinking:
+    print("Reasoning:", thinking)
+else:
+    print("No thinking content in this report")
+```
+
+```python
+# Download report and thinking to files
+result = await client.artifacts.download_report(
+    nb_id,
+    "./report.md",
+    artifact_id=None,
+    include_thinking=True,
+    thinking_output_path=None,  # default: report.thinking.md next to report
+)
+# result: str when no thinking, or (report_path, thinking_path) when thinking saved
+
+if isinstance(result, tuple):
+    report_path, thinking_path = result
+    print(f"Report: {report_path}, Thinking: {thinking_path}")
+else:
+    print(f"Report: {result}")
+```
 
 #### Export Methods
 

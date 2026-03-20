@@ -1503,24 +1503,70 @@ class ArtifactsAPI:
         normalized = [{"front": c.get("f", ""), "back": c.get("b", "")} for c in cards]
         return json.dumps({"title": title, "cards": normalized}, indent=2)
 
-    async def download_report(
+    @staticmethod
+    def _extract_thinking_from_report_artifact(art: builtins.list[Any]) -> str | None:
+        """Try to extract thinking/reasoning content from a report artifact.
+
+        The NotebookLM API structure for thinking is not documented. This method
+        probes likely locations in the raw artifact array. Returns the first
+        non-empty string found, or None if no thinking content is present.
+
+        Candidate locations (may change if API structure evolves):
+        - art[7][1]: content_wrapper second element (if list has 2+ items)
+        - art[8]: separate thinking field
+        - art[7] nested: dict with 'thinking' key, or list of [content, thinking]
+        """
+        if not isinstance(art, list) or len(art) < 8:
+            return None
+
+        candidates: list[Any] = []
+
+        # art[7] content_wrapper: try second element as thinking
+        cw = art[7]
+        if isinstance(cw, list) and len(cw) > 1 and isinstance(cw[1], str) and cw[1]:
+            candidates.append(cw[1])
+
+        # art[8]: separate field
+        if len(art) > 8:
+            val = art[8]
+            if isinstance(val, str) and val:
+                candidates.append(val)
+            elif isinstance(val, list) and val and isinstance(val[0], str) and val[0]:
+                candidates.append(val[0] if len(val) == 1 else "\n\n".join(str(x) for x in val if x))
+            elif isinstance(val, dict) and val.get("thinking"):
+                candidates.append(val["thinking"])
+
+        # art[7] as dict
+        if isinstance(cw, dict) and cw.get("thinking"):
+            candidates.append(cw["thinking"])
+
+        for c in candidates:
+            if isinstance(c, str) and c.strip():
+                return c.strip()
+        return None
+
+    async def get_report_content(
         self,
         notebook_id: str,
-        output_path: str,
         artifact_id: str | None = None,
-    ) -> str:
-        """Download a report artifact as markdown.
+        include_thinking: bool = False,
+    ) -> tuple[str, str | None]:
+        """Get report content and optionally thinking/reasoning.
 
         Args:
             notebook_id: The notebook ID.
-            output_path: Path to save the markdown file.
             artifact_id: Specific artifact ID, or uses first completed report.
+            include_thinking: If True, also attempt to extract thinking content
+                from the artifact. Returns None for thinking if not present.
 
         Returns:
-            The output path where the file was saved.
+            Tuple of (markdown_content, thinking_or_none).
+
+        Raises:
+            ArtifactNotReadyError: If no completed report found.
+            ArtifactParseError: If report content structure is invalid.
         """
         artifacts_data = await self._list_raw(notebook_id)
-
         report_candidates = [
             a
             for a in artifacts_data
@@ -1529,29 +1575,65 @@ class ArtifactsAPI:
             and a[2] == ArtifactTypeCode.REPORT
             and a[4] == ArtifactStatus.COMPLETED
         ]
-
         report_art = self._select_artifact(report_candidates, artifact_id, "Report", "report")
 
-        try:
-            content_wrapper = report_art[7]
-            markdown_content = (
-                content_wrapper[0]
-                if isinstance(content_wrapper, list) and content_wrapper
-                else content_wrapper
+        content_wrapper = report_art[7]
+        markdown_content = (
+            content_wrapper[0]
+            if isinstance(content_wrapper, list) and content_wrapper
+            else content_wrapper
+        )
+        if not isinstance(markdown_content, str):
+            raise ArtifactParseError("report_content", details="Invalid structure")
+
+        thinking = (
+            self._extract_thinking_from_report_artifact(report_art) if include_thinking else None
+        )
+        return markdown_content, thinking
+
+    async def download_report(
+        self,
+        notebook_id: str,
+        output_path: str,
+        artifact_id: str | None = None,
+        include_thinking: bool = False,
+        thinking_output_path: str | None = None,
+    ) -> str | tuple[str, str | None]:
+        """Download a report artifact as markdown.
+
+        Args:
+            notebook_id: The notebook ID.
+            output_path: Path to save the markdown file.
+            artifact_id: Specific artifact ID, or uses first completed report.
+            include_thinking: If True, attempt to extract and save thinking content.
+            thinking_output_path: When include_thinking is True, path to save
+                thinking. If None, saves to output_path with .thinking.md suffix
+                (e.g. report.md -> report.thinking.md).
+
+        Returns:
+            The output path where the report was saved. When include_thinking is
+            True and thinking was found, returns (report_path, thinking_path);
+            otherwise returns report_path only.
+        """
+        content, thinking = await self.get_report_content(
+            notebook_id, artifact_id=artifact_id, include_thinking=include_thinking
+        )
+
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(content, encoding="utf-8")
+
+        if include_thinking and thinking:
+            thinking_path = Path(
+                thinking_output_path
+                if thinking_output_path is not None
+                else str(output).replace(".md", ".thinking.md")
             )
+            thinking_path.parent.mkdir(parents=True, exist_ok=True)
+            thinking_path.write_text(thinking, encoding="utf-8")
+            return str(output), str(thinking_path)
 
-            if not isinstance(markdown_content, str):
-                raise ArtifactParseError("report_content", details="Invalid structure")
-
-            output = Path(output_path)
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(markdown_content, encoding="utf-8")
-            return str(output)
-
-        except (IndexError, TypeError) as e:
-            raise ArtifactParseError(
-                "report", details=f"Failed to parse structure: {e}", cause=e
-            ) from e
+        return str(output)
 
     async def download_mind_map(
         self,

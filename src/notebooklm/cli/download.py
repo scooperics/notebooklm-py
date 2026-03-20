@@ -125,6 +125,8 @@ async def _download_artifacts_generic(
     force: bool,
     no_clobber: bool,
     slide_format: str = "pdf",
+    include_thinking: bool = False,
+    thinking_output_path: str | None = None,
 ) -> dict:
     """
     Generic artifact download implementation.
@@ -199,6 +201,14 @@ async def _download_artifacts_generic(
             # For slide-deck with PPTX format, bind output_format="pptx"
             if artifact_type_name == "slide-deck" and slide_format == "pptx":
                 download_fn = partial(client.artifacts.download_slide_deck, output_format="pptx")
+
+            # For report with thinking extraction, bind include_thinking and thinking_output_path
+            if artifact_type_name == "report" and include_thinking:
+                download_fn = partial(
+                    client.artifacts.download_report,
+                    include_thinking=True,
+                    thinking_output_path=thinking_output_path,
+                )
 
             # Fetch and filter artifacts by type and completed status
             type_artifacts = await _get_completed_artifacts_as_dicts(
@@ -302,19 +312,21 @@ async def _download_artifacts_generic(
                     # Download
                     try:
                         # Download using dispatch
-                        await download_fn(
+                        dl_result = await download_fn(
                             nb_id_resolved, str(item_path), artifact_id=str(artifact["id"])
                         )
-
-                        results.append(
-                            {
-                                "id": artifact["id"],
-                                "title": artifact["title"],
-                                "filename": item_name,
-                                "path": str(item_path),
-                                "status": "downloaded",
-                            }
-                        )
+                        result_entry: dict = {
+                            "id": artifact["id"],
+                            "title": artifact["title"],
+                            "filename": item_name,
+                            "path": str(item_path),
+                            "status": "downloaded",
+                        }
+                        if isinstance(dl_result, tuple):
+                            result_entry["path"] = dl_result[0]
+                            if dl_result[1]:
+                                result_entry["thinking_path"] = dl_result[1]
+                        results.append(result_entry)
                     except Exception as e:
                         results.append(
                             {
@@ -388,9 +400,13 @@ async def _download_artifacts_generic(
             # Download
             try:
                 # Download using dispatch
-                result_path = await download_fn(
+                dl_result = await download_fn(
                     nb_id_resolved, str(final_path), artifact_id=str(selected["id"])
                 )
+                report_path = (
+                    dl_result[0] if isinstance(dl_result, tuple) else (dl_result or str(final_path))
+                )
+                thinking_path = dl_result[1] if isinstance(dl_result, tuple) and len(dl_result) > 1 else None
 
                 return {
                     "operation": "download_single",
@@ -399,7 +415,8 @@ async def _download_artifacts_generic(
                         "title": selected["title"],
                         "selection_reason": reason,
                     },
-                    "output_path": result_path or str(final_path),
+                    "output_path": report_path,
+                    "thinking_path": thinking_path,
                     "status": "downloaded",
                 }
             except Exception as e:
@@ -445,7 +462,10 @@ def _display_download_result(result: dict, artifact_type: str) -> None:
         if downloaded:
             console.print("\n[green]Downloaded:[/green]")
             for r in downloaded:
-                console.print(f"  {r['filename']} <- {r['title']}")
+                line = f"  {r['filename']} <- {r['title']}"
+                if r.get("thinking_path"):
+                    line += f"\n    thinking: {r['thinking_path']}"
+                console.print(line)
 
         if skipped:
             console.print("\n[yellow]Skipped:[/yellow]")
@@ -462,6 +482,8 @@ def _display_download_result(result: dict, artifact_type: str) -> None:
         console.print(
             f"[green]{artifact_type.capitalize()} saved to:[/green] {result['output_path']}"
         )
+        if result.get("thinking_path"):
+            console.print(f"[green]Thinking saved to:[/green] {result['thinking_path']}")
         console.print(
             f"[dim]Artifact: {result['artifact']['title']} ({result['artifact']['selection_reason']})[/dim]"
         )
@@ -683,6 +705,17 @@ def _run_artifact_download(ctx, artifact_type: str, **kwargs) -> None:
 @click.option("--dry-run", is_flag=True, help="Preview without downloading")
 @click.option("--force", is_flag=True, help="Overwrite existing files")
 @click.option("--no-clobber", is_flag=True, help="Skip if file exists")
+@click.option(
+    "--include-thinking",
+    is_flag=True,
+    help="Extract and save reasoning/thinking content (if present) to .thinking.md",
+)
+@click.option(
+    "--thinking-output",
+    "thinking_output_path",
+    type=click.Path(),
+    help="Path for thinking file (default: <output>.thinking.md)",
+)
 @click.pass_context
 def download_report(ctx, **kwargs):
     """Download report(s) as markdown files.
@@ -694,6 +727,9 @@ def download_report(ctx, **kwargs):
 
       # Download to specific path
       notebooklm download report my-report.md
+
+      # Download report with reasoning/thinking (if present)
+      notebooklm download report my-report.md --include-thinking
 
       # Download all reports to directory
       notebooklm download report --all ./reports/

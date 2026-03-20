@@ -532,6 +532,89 @@ class TestDownloadReport:
             assert "# Direct String Report" in content
             assert "Content as string, not list." in content
 
+    @pytest.mark.asyncio
+    async def test_get_report_content_with_thinking(self, mock_artifacts_api):
+        """Test get_report_content extracts thinking when present at art[7][1]."""
+        api, mock_core = mock_artifacts_api
+
+        with patch.object(api, "_list_raw", new_callable=AsyncMock) as mock_list:
+            # content_wrapper as [content, thinking]
+            mock_list.return_value = [
+                [
+                    "report_003",
+                    "Report with Thinking",
+                    2,
+                    None,
+                    3,
+                    None,
+                    None,
+                    [
+                        "# Report Content\n\nMain body.",
+                        "## Reasoning\n\nStep 1: Analyzed sources. Step 2: Synthesized.",
+                    ],
+                ]
+            ]
+
+            content, thinking = await api.get_report_content(
+                "nb_123", artifact_id="report_003", include_thinking=True
+            )
+
+        assert "# Report Content" in content
+        assert "Main body" in content
+        assert thinking is not None
+        assert "Reasoning" in thinking
+        assert "Step 1" in thinking
+
+    @pytest.mark.asyncio
+    async def test_get_report_content_thinking_none_when_absent(self, mock_artifacts_api):
+        """Test get_report_content returns None for thinking when not present."""
+        api, mock_core = mock_artifacts_api
+
+        with patch.object(api, "_list_raw", new_callable=AsyncMock) as mock_list:
+            mock_list.return_value = [
+                ["report_004", "Report", 2, None, 3, None, None, ["# Content only"]]
+            ]
+
+            content, thinking = await api.get_report_content(
+                "nb_123", include_thinking=True
+            )
+
+        assert "# Content only" in content
+        assert thinking is None
+
+    @pytest.mark.asyncio
+    async def test_download_report_with_thinking(self, mock_artifacts_api):
+        """Test download_report saves thinking to .thinking.md when include_thinking=True."""
+        api, mock_core = mock_artifacts_api
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            report_path = os.path.join(tmpdir, "report.md")
+
+            with patch.object(api, "_list_raw", new_callable=AsyncMock) as mock_list:
+                mock_list.return_value = [
+                    [
+                        "report_005",
+                        "Report",
+                        2,
+                        None,
+                        3,
+                        None,
+                        None,
+                        ["# Report", "Thinking content here"],
+                    ]
+                ]
+
+                result = await api.download_report(
+                    "nb_123", report_path, include_thinking=True
+                )
+
+            assert isinstance(result, tuple)
+            assert len(result) == 2
+            assert result[0] == report_path
+            assert result[1].endswith(".thinking.md")
+            with open(result[1], encoding="utf-8") as f:
+                assert "Thinking content here" in f.read()
+
 
 class TestDownloadMindMap:
     """Test download_mind_map method."""
