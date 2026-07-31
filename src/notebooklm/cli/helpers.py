@@ -149,7 +149,7 @@ def get_client(ctx) -> tuple[dict, str, str]:
     """
     storage_path = ctx.obj.get("storage_path") if ctx.obj else None
     cookies = load_auth_from_storage(storage_path)
-    csrf, session_id = run_async(fetch_tokens(cookies))
+    csrf, session_id = run_async(fetch_tokens(cookies, path=storage_path))
     return cookies, csrf, session_id
 
 

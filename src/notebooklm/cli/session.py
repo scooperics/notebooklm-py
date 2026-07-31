@@ -45,7 +45,14 @@ logger = logging.getLogger(__name__)
 
 GOOGLE_ACCOUNTS_URL = "https://accounts.google.com/"
 NOTEBOOKLM_URL = "https://notebooklm.google.com/"
-NOTEBOOKLM_HOST = "notebooklm.google.com"
+NOTEBOOKLM_HOSTS = frozenset({"notebooklm.google.com", "notebook.google.com"})
+
+
+def _is_notebooklm_url(url: str) -> bool:
+    from urllib.parse import urlparse
+
+    host = (urlparse(url).hostname or "").lower()
+    return host in NOTEBOOKLM_HOSTS
 
 
 def _sync_server_language_to_config() -> None:
@@ -248,7 +255,7 @@ def register_session_commands(cli):
 
             console.print("\n[bold green]Instructions:[/bold green]")
             console.print("1. Complete the Google login in the browser window")
-            console.print("2. Wait until you see the NotebookLM homepage")
+            console.print("2. Wait until you see the NotebookLM / Notebook homepage")
             console.print("3. Press [bold]ENTER[/bold] here to save and close\n")
 
             input("[Press ENTER when logged in] ")
@@ -259,7 +266,7 @@ def register_session_commands(cli):
             page.goto(NOTEBOOKLM_URL, wait_until="load")
 
             current_url = page.url
-            if NOTEBOOKLM_HOST not in current_url:
+            if not _is_notebooklm_url(current_url):
                 console.print(f"[yellow]Warning: Current URL is {current_url}[/yellow]")
                 if not click.confirm("Save authentication anyway?"):
                     context.close()
@@ -568,7 +575,7 @@ def register_session_commands(cli):
         # Check 4: Token fetch (optional)
         if test_fetch:
             try:
-                csrf, session_id = run_async(fetch_tokens(cookies))
+                csrf, session_id = run_async(fetch_tokens(cookies, path=storage_path))
                 checks["token_fetch"] = True
                 details["csrf_length"] = len(csrf)
                 details["session_id_length"] = len(session_id)

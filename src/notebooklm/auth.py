@@ -49,7 +49,9 @@ MINIMUM_REQUIRED_COOKIES = {"SID"}
 # Includes googleusercontent.com for authenticated media downloads
 ALLOWED_COOKIE_DOMAINS = {
     ".google.com",
+    "accounts.google.com",
     "notebooklm.google.com",
+    "notebook.google.com",
     ".googleusercontent.com",
 }
 
@@ -193,7 +195,7 @@ class AuthTokens:
                 notebooks = await client.list_notebooks()
         """
         cookies = load_auth_from_storage(path)
-        csrf_token, session_id = await fetch_tokens(cookies)
+        csrf_token, session_id = await fetch_tokens(cookies, path=path)
         return cls(cookies=cookies, csrf_token=csrf_token, session_id=session_id)
 
 
@@ -585,14 +587,15 @@ def load_httpx_cookies(path: Path | None = None) -> "httpx.Cookies":
     return cookies
 
 
-async def fetch_tokens(cookies: dict[str, str]) -> tuple[str, str]:
+async def fetch_tokens(cookies: dict[str, str], path: Path | None = None) -> tuple[str, str]:
     """Fetch CSRF token and session ID from NotebookLM homepage.
 
     Makes an authenticated request to NotebookLM and extracts the required
     tokens from the page HTML.
 
     Args:
-        cookies: Dict of Google auth cookies
+        cookies: Dict of Google auth cookies (validated against storage when path is None)
+        path: Optional storage_state.json path (also supports NOTEBOOKLM_AUTH_JSON)
 
     Returns:
         Tuple of (csrf_token, session_id)
@@ -602,12 +605,11 @@ async def fetch_tokens(cookies: dict[str, str]) -> tuple[str, str]:
         ValueError: If tokens cannot be extracted from response
     """
     logger.debug("Fetching CSRF and session tokens from NotebookLM")
-    cookie_header = "; ".join(f"{k}={v}" for k, v in cookies.items())
+    cookie_jar = load_httpx_cookies(path)
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(cookies=cookie_jar) as client:
         response = await client.get(
             "https://notebooklm.google.com/",
-            headers={"Cookie": cookie_header},
             follow_redirects=True,
             timeout=30.0,
         )
