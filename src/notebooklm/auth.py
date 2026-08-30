@@ -155,11 +155,13 @@ class AuthTokens:
         cookies: Dict of required Google auth cookies
         csrf_token: CSRF token (SNlM0e) extracted from page
         session_id: Session ID (FdrFJe) extracted from page
+        storage_path: Optional path passed to from_storage; used to load domain-scoped cookies for RPC.
     """
 
     cookies: dict[str, str]
     csrf_token: str
     session_id: str
+    storage_path: Path | None = None
 
     @property
     def cookie_header(self) -> str:
@@ -196,7 +198,12 @@ class AuthTokens:
         """
         cookies = load_auth_from_storage(path)
         csrf_token, session_id = await fetch_tokens(cookies, path=path)
-        return cls(cookies=cookies, csrf_token=csrf_token, session_id=session_id)
+        return cls(
+            cookies=cookies,
+            csrf_token=csrf_token,
+            session_id=session_id,
+            storage_path=Path(path) if path else None,
+        )
 
 
 def _is_google_domain(domain: str) -> bool:

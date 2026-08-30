@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from .auth import AuthTokens
+from .auth import AuthTokens, load_httpx_cookies
 from .rpc import (
     BATCHEXECUTE_URL,
     AuthError,
@@ -141,8 +141,8 @@ class ClientCore:
             self._http_client = httpx.AsyncClient(
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                    "Cookie": self.auth.cookie_header,
                 },
+                cookies=load_httpx_cookies(self.auth.storage_path),
                 timeout=timeout,
             )
 
@@ -161,17 +161,12 @@ class ClientCore:
         return self._http_client is not None
 
     def update_auth_headers(self) -> None:
-        """Update HTTP client headers with current auth tokens.
+        """Update HTTP client after auth token refresh (CSRF/session id live on self.auth).
 
-        Call this after modifying auth tokens (e.g., after refresh_auth())
-        to ensure the HTTP client uses the updated credentials.
-
-        Raises:
-            RuntimeError: If client is not initialized.
+        Cookie jar is loaded at client open from storage; refresh_auth re-fetches tokens only.
         """
         if not self._http_client:
             raise RuntimeError("Client not initialized. Use 'async with' context.")
-        self._http_client.headers["Cookie"] = self.auth.cookie_header
 
     def _build_url(self, rpc_method: RPCMethod, source_path: str = "/") -> str:
         """Build the batchexecute URL for an RPC call.
