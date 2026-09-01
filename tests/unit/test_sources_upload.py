@@ -14,7 +14,16 @@ def mock_core():
     core.rpc_call = AsyncMock()
     core.auth = MagicMock()
     core.auth.cookie_header = "SID=test_sid; HSID=test_hsid"
+    core.get_http_client = MagicMock()
     return core
+
+
+@pytest.fixture
+def mock_http_client(mock_core):
+    """HTTP client returned by ClientCore.get_http_client()."""
+    client = AsyncMock()
+    mock_core.get_http_client.return_value = client
+    return client
 
 
 @pytest.fixture
@@ -163,107 +172,79 @@ class TestStartResumableUpload:
     """Tests for starting resumable upload."""
 
     @pytest.mark.asyncio
-    async def test_start_resumable_upload_success(self, sources_api, mock_core):
+    async def test_start_resumable_upload_success(self, sources_api, mock_http_client):
         """Test successful upload start."""
         mock_response = MagicMock()
         mock_response.headers = {"x-goog-upload-url": "https://upload.example.com/session123"}
+        mock_http_client.post.return_value = mock_response
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
-            result = await sources_api._start_resumable_upload(
-                "nb_123", "test.pdf", 1024, "src_456"
-            )
+        result = await sources_api._start_resumable_upload(
+            "nb_123", "test.pdf", 1024, "src_456"
+        )
 
         assert result == "https://upload.example.com/session123"
 
     @pytest.mark.asyncio
-    async def test_start_resumable_upload_includes_correct_headers(self, sources_api, mock_core):
+    async def test_start_resumable_upload_includes_correct_headers(
+        self, sources_api, mock_http_client
+    ):
         """Test that upload start includes correct headers."""
         mock_response = MagicMock()
         mock_response.headers = {"x-goog-upload-url": "https://upload.example.com"}
+        mock_http_client.post.return_value = mock_response
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.return_value = mock_response
-            mock_client_cls.return_value = mock_client
+        await sources_api._start_resumable_upload("nb_123", "test.pdf", 2048, "src_789")
 
-            await sources_api._start_resumable_upload("nb_123", "test.pdf", 2048, "src_789")
+        call_kwargs = mock_http_client.post.call_args[1]
+        headers = call_kwargs["headers"]
 
-            call_kwargs = mock_client.post.call_args[1]
-            headers = call_kwargs["headers"]
-
-            assert headers["x-goog-upload-command"] == "start"
-            assert headers["x-goog-upload-header-content-length"] == "2048"
-            assert headers["x-goog-upload-protocol"] == "resumable"
-            assert "Cookie" in headers
+        assert headers["x-goog-upload-command"] == "start"
+        assert headers["x-goog-upload-header-content-length"] == "2048"
+        assert headers["x-goog-upload-protocol"] == "resumable"
 
     @pytest.mark.asyncio
-    async def test_start_resumable_upload_includes_json_body(self, sources_api, mock_core):
+    async def test_start_resumable_upload_includes_json_body(self, sources_api, mock_http_client):
         """Test that upload start includes correct JSON body."""
         import json
 
         mock_response = MagicMock()
         mock_response.headers = {"x-goog-upload-url": "https://upload.example.com"}
+        mock_http_client.post.return_value = mock_response
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.return_value = mock_response
-            mock_client_cls.return_value = mock_client
+        await sources_api._start_resumable_upload("nb_test", "myfile.pdf", 1000, "src_abc")
 
-            await sources_api._start_resumable_upload("nb_test", "myfile.pdf", 1000, "src_abc")
+        call_kwargs = mock_http_client.post.call_args[1]
+        body = json.loads(call_kwargs["content"])
 
-            call_kwargs = mock_client.post.call_args[1]
-            body = json.loads(call_kwargs["content"])
-
-            assert body["PROJECT_ID"] == "nb_test"
-            assert body["SOURCE_NAME"] == "myfile.pdf"
-            assert body["SOURCE_ID"] == "src_abc"
+        assert body["PROJECT_ID"] == "nb_test"
+        assert body["SOURCE_NAME"] == "myfile.pdf"
+        assert body["SOURCE_ID"] == "src_abc"
 
     @pytest.mark.asyncio
     async def test_start_resumable_upload_raises_on_missing_url_header(
-        self, sources_api, mock_core
+        self, sources_api, mock_http_client
     ):
         """Test that missing upload URL header raises SourceAddError."""
         from notebooklm.exceptions import SourceAddError
 
         mock_response = MagicMock()
         mock_response.headers = {}  # No x-goog-upload-url
+        mock_http_client.post.return_value = mock_response
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.return_value = mock_response
-            mock_client_cls.return_value = mock_client
-
-            with pytest.raises(SourceAddError, match="Failed to get upload URL"):
-                await sources_api._start_resumable_upload("nb_123", "test.pdf", 1024, "src_456")
+        with pytest.raises(SourceAddError, match="Failed to get upload URL"):
+            await sources_api._start_resumable_upload("nb_123", "test.pdf", 1024, "src_456")
 
     @pytest.mark.asyncio
-    async def test_start_resumable_upload_raises_on_http_error(self, sources_api, mock_core):
+    async def test_start_resumable_upload_raises_on_http_error(self, sources_api, mock_http_client):
         """Test that HTTP error raises exception."""
         import httpx
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.side_effect = httpx.HTTPStatusError(
-                "Server Error", request=MagicMock(), response=MagicMock()
-            )
-            mock_client_cls.return_value = mock_client
+        mock_http_client.post.side_effect = httpx.HTTPStatusError(
+            "Server Error", request=MagicMock(), response=MagicMock()
+        )
 
-            with pytest.raises(httpx.HTTPStatusError):
-                await sources_api._start_resumable_upload("nb_123", "test.pdf", 1024, "src_456")
+        with pytest.raises(httpx.HTTPStatusError):
+            await sources_api._start_resumable_upload("nb_123", "test.pdf", 1024, "src_456")
 
 
 # =============================================================================
@@ -275,80 +256,64 @@ class TestUploadFileStreaming:
     """Tests for streaming file upload."""
 
     @pytest.mark.asyncio
-    async def test_upload_file_streaming_success(self, sources_api, mock_core, tmp_path):
+    async def test_upload_file_streaming_success(self, sources_api, mock_http_client, tmp_path):
         """Test successful streaming file upload."""
         test_file = tmp_path / "test.txt"
         test_file.write_bytes(b"file content here")
         mock_response = MagicMock()
+        mock_http_client.post.return_value = mock_response
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.return_value = mock_response
-            mock_client_cls.return_value = mock_client
+        # Should not raise
+        await sources_api._upload_file_streaming(
+            "https://upload.example.com/session", test_file
+        )
 
-            # Should not raise
-            await sources_api._upload_file_streaming(
-                "https://upload.example.com/session", test_file
-            )
-
-            mock_client.post.assert_called_once()
+        mock_http_client.post.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_upload_file_streaming_includes_correct_headers(
-        self, sources_api, mock_core, tmp_path
+        self, sources_api, mock_http_client, tmp_path
     ):
         """Test that streaming upload includes correct headers."""
         test_file = tmp_path / "test.txt"
         test_file.write_bytes(b"content")
         mock_response = MagicMock()
+        mock_http_client.post.return_value = mock_response
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.return_value = mock_response
-            mock_client_cls.return_value = mock_client
+        await sources_api._upload_file_streaming(
+            "https://notebooklm.google.com/upload/_/?authuser=2&upload_id=abc", test_file
+        )
 
-            await sources_api._upload_file_streaming(
-                "https://upload.example.com/session", test_file
-            )
+        call_kwargs = mock_http_client.post.call_args[1]
+        headers = call_kwargs["headers"]
 
-            call_kwargs = mock_client.post.call_args[1]
-            headers = call_kwargs["headers"]
-
-            assert headers["x-goog-upload-command"] == "upload, finalize"
-            assert headers["x-goog-upload-offset"] == "0"
-            assert "Cookie" in headers
+        assert headers["x-goog-upload-command"] == "upload, finalize"
+        assert headers["x-goog-upload-offset"] == "0"
+        assert headers["x-goog-authuser"] == "2"
 
     @pytest.mark.asyncio
-    async def test_upload_file_streaming_uses_generator(self, sources_api, mock_core, tmp_path):
+    async def test_upload_file_streaming_uses_generator(
+        self, sources_api, mock_http_client, tmp_path
+    ):
         """Test that file content is streamed via generator."""
         test_file = tmp_path / "test.txt"
         test_content = b"This is my file content"
         test_file.write_bytes(test_content)
         mock_response = MagicMock()
+        mock_http_client.post.return_value = mock_response
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.return_value = mock_response
-            mock_client_cls.return_value = mock_client
+        await sources_api._upload_file_streaming("https://upload.example.com", test_file)
 
-            await sources_api._upload_file_streaming("https://upload.example.com", test_file)
-
-            call_kwargs = mock_client.post.call_args[1]
-            # Content should be a generator, not bytes
-            content = call_kwargs["content"]
-            # Consume the generator to verify it yields the file content
-            chunks = [chunk async for chunk in content]
-            assert b"".join(chunks) == test_content
+        call_kwargs = mock_http_client.post.call_args[1]
+        # Content should be a generator, not bytes
+        content = call_kwargs["content"]
+        # Consume the generator to verify it yields the file content
+        chunks = [chunk async for chunk in content]
+        assert b"".join(chunks) == test_content
 
     @pytest.mark.asyncio
     async def test_upload_file_streaming_raises_on_http_error(
-        self, sources_api, mock_core, tmp_path
+        self, sources_api, mock_http_client, tmp_path
     ):
         """Test that HTTP error raises exception."""
         import httpx
@@ -356,17 +321,12 @@ class TestUploadFileStreaming:
         test_file = tmp_path / "test.txt"
         test_file.write_bytes(b"content")
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.side_effect = httpx.HTTPStatusError(
-                "Upload Failed", request=MagicMock(), response=MagicMock()
-            )
-            mock_client_cls.return_value = mock_client
+        mock_http_client.post.side_effect = httpx.HTTPStatusError(
+            "Upload Failed", request=MagicMock(), response=MagicMock()
+        )
 
-            with pytest.raises(httpx.HTTPStatusError):
-                await sources_api._upload_file_streaming("https://upload.example.com", test_file)
+        with pytest.raises(httpx.HTTPStatusError):
+            await sources_api._upload_file_streaming("https://upload.example.com", test_file)
 
 
 # =============================================================================
@@ -378,7 +338,7 @@ class TestAddFile:
     """Tests for the add_file() public method."""
 
     @pytest.mark.asyncio
-    async def test_add_file_complete_flow(self, sources_api, mock_core, tmp_path):
+    async def test_add_file_complete_flow(self, sources_api, mock_core, mock_http_client, tmp_path):
         """Test complete file upload flow."""
         # Create a temp file
         test_file = tmp_path / "test.pdf"
@@ -387,20 +347,13 @@ class TestAddFile:
         # Mock the registration response - 4 levels with string at deepest
         mock_core.rpc_call.return_value = [[[["src_new_123"]]]]
 
-        # Mock HTTP calls
         mock_start_response = MagicMock()
         mock_start_response.headers = {"x-goog-upload-url": "https://upload.example.com/session"}
 
         mock_upload_response = MagicMock()
+        mock_http_client.post.side_effect = [mock_start_response, mock_upload_response]
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.side_effect = [mock_start_response, mock_upload_response]
-            mock_client_cls.return_value = mock_client
-
-            result = await sources_api.add_file("nb_123", str(test_file))
+        result = await sources_api.add_file("nb_123", str(test_file))
 
         assert result.id == "src_new_123"
         assert result.title == "test.pdf"
@@ -413,7 +366,9 @@ class TestAddFile:
             await sources_api.add_file("nb_123", "/nonexistent/path/file.pdf")
 
     @pytest.mark.asyncio
-    async def test_add_file_with_path_object(self, sources_api, mock_core, tmp_path):
+    async def test_add_file_with_path_object(
+        self, sources_api, mock_core, mock_http_client, tmp_path
+    ):
         """Test add_file accepts Path objects."""
         test_file = tmp_path / "doc.txt"
         test_file.write_bytes(b"text content")
@@ -423,15 +378,9 @@ class TestAddFile:
         mock_start_response = MagicMock()
         mock_start_response.headers = {"x-goog-upload-url": "https://upload.example.com"}
         mock_upload_response = MagicMock()
+        mock_http_client.post.side_effect = [mock_start_response, mock_upload_response]
 
-        with patch("httpx.AsyncClient") as mock_client_cls:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.side_effect = [mock_start_response, mock_upload_response]
-            mock_client_cls.return_value = mock_client
-
-            result = await sources_api.add_file("nb_123", test_file)  # Path object
+        result = await sources_api.add_file("nb_123", test_file)  # Path object
 
         assert result.id == "src_txt"
         assert result.title == "doc.txt"

@@ -10,11 +10,8 @@ from time import monotonic
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-import httpx
-
 from ._core import ClientCore
 from ._url_utils import is_youtube_url
-from .auth import load_httpx_cookies
 from .exceptions import ValidationError
 from .rpc import UPLOAD_URL, RPCError, RPCMethod
 from .rpc.types import SourceStatus
@@ -931,6 +928,12 @@ class SourcesAPI:
 
         raise SourceAddError(filename, message="Failed to get SOURCE_ID from registration response")
 
+    @staticmethod
+    def _upload_authuser(url: str) -> str:
+        """Extract authuser index from an upload URL query string."""
+        authuser = parse_qs(urlparse(url).query).get("authuser", ["0"])
+        return authuser[0] if authuser else "0"
+
     async def _start_resumable_upload(
         self,
         notebook_id: str,
@@ -962,18 +965,18 @@ class SourcesAPI:
             }
         )
 
-        upload_cookies = load_httpx_cookies(self._core.auth.storage_path)
-        async with httpx.AsyncClient(timeout=60.0, cookies=upload_cookies) as client:
-            response = await client.post(url, headers=headers, content=body)
-            response.raise_for_status()
+        # Reuse the RPC session client so upload cookies match batchexecute calls.
+        client = self._core.get_http_client()
+        response = await client.post(url, headers=headers, content=body)
+        response.raise_for_status()
 
-            upload_url = response.headers.get("x-goog-upload-url")
-            if not upload_url:
-                raise SourceAddError(
-                    filename, message="Failed to get upload URL from response headers"
-                )
+        upload_url = response.headers.get("x-goog-upload-url")
+        if not upload_url:
+            raise SourceAddError(
+                filename, message="Failed to get upload URL from response headers"
+            )
 
-            return upload_url
+        return upload_url
 
     async def _upload_file_streaming(self, upload_url: str, file_path: Path) -> None:
         """Stream upload file content to the resumable upload URL.
@@ -985,12 +988,13 @@ class SourcesAPI:
             upload_url: The resumable upload URL from _start_resumable_upload.
             file_path: Path to the file to upload.
         """
+        authuser = self._upload_authuser(upload_url)
         headers = {
             "Accept": "*/*",
             "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
             "Origin": "https://notebooklm.google.com",
             "Referer": "https://notebooklm.google.com/",
-            "x-goog-authuser": "0",
+            "x-goog-authuser": authuser,
             "x-goog-upload-command": "upload, finalize",
             "x-goog-upload-offset": "0",
         }
@@ -1001,7 +1005,6 @@ class SourcesAPI:
                 while chunk := f.read(65536):  # 64KB chunks
                     yield chunk
 
-        upload_cookies = load_httpx_cookies(self._core.auth.storage_path)
-        async with httpx.AsyncClient(timeout=300.0, cookies=upload_cookies) as client:
-            response = await client.post(upload_url, headers=headers, content=file_stream())
-            response.raise_for_status()
+        client = self._core.get_http_client()
+        response = await client.post(upload_url, headers=headers, content=file_stream())
+        response.raise_for_status()
