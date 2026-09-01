@@ -14,6 +14,7 @@ import httpx
 
 from ._core import ClientCore
 from ._url_utils import is_youtube_url
+from .auth import load_httpx_cookies
 from .exceptions import ValidationError
 from .rpc import UPLOAD_URL, RPCError, RPCMethod
 from .rpc.types import SourceStatus
@@ -945,7 +946,6 @@ class SourcesAPI:
         headers = {
             "Accept": "*/*",
             "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-            "Cookie": self._core.auth.cookie_header,
             "Origin": "https://notebooklm.google.com",
             "Referer": "https://notebooklm.google.com/",
             "x-goog-authuser": "0",
@@ -962,7 +962,8 @@ class SourcesAPI:
             }
         )
 
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        upload_cookies = load_httpx_cookies(self._core.auth.storage_path)
+        async with httpx.AsyncClient(timeout=60.0, cookies=upload_cookies) as client:
             response = await client.post(url, headers=headers, content=body)
             response.raise_for_status()
 
@@ -987,7 +988,6 @@ class SourcesAPI:
         headers = {
             "Accept": "*/*",
             "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-            "Cookie": self._core.auth.cookie_header,
             "Origin": "https://notebooklm.google.com",
             "Referer": "https://notebooklm.google.com/",
             "x-goog-authuser": "0",
@@ -1001,6 +1001,7 @@ class SourcesAPI:
                 while chunk := f.read(65536):  # 64KB chunks
                     yield chunk
 
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        upload_cookies = load_httpx_cookies(self._core.auth.storage_path)
+        async with httpx.AsyncClient(timeout=300.0, cookies=upload_cookies) as client:
             response = await client.post(upload_url, headers=headers, content=file_stream())
             response.raise_for_status()
